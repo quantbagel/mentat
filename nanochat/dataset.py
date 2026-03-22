@@ -24,18 +24,30 @@ BASE_URL = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resol
 MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
 index_to_filename = lambda index: f"shard_{index:05d}.parquet" # format of the filenames
 base_dir = get_base_dir()
-DATA_DIR = os.path.join(base_dir, "base_data_climbmix")
+DEFAULT_DATA_DIR = os.path.join(base_dir, "base_data_climbmix")
+
+
+def get_data_dir():
+    """Resolve the active parquet dataset directory.
+
+    `NANOCHAT_DATA_DIR` lets alternate corpora reuse the normal tokenizer and
+    pretraining scripts without patching those entry points.
+    """
+    return os.environ.get("NANOCHAT_DATA_DIR", DEFAULT_DATA_DIR)
 
 # -----------------------------------------------------------------------------
 # These functions are useful utilities to other modules, can/should be imported
 
 def list_parquet_files(data_dir=None, warn_on_legacy=False):
     """ Looks into a data dir and returns full paths to all parquet files. """
-    data_dir = DATA_DIR if data_dir is None else data_dir
+    data_dir = get_data_dir() if data_dir is None else data_dir
+    using_override = data_dir == os.environ.get("NANOCHAT_DATA_DIR")
 
     # Legacy-supporting code due to the upgrade from FinewebEdu-100B to ClimbMix-400B
     # This code will eventually be deleted.
     if not os.path.exists(data_dir):
+        if using_override:
+            return []
         if warn_on_legacy:
             print()
             print("=" * 80)
@@ -86,7 +98,7 @@ def download_single_file(index):
 
     # Construct the local filepath for this file and skip if it already exists
     filename = index_to_filename(index)
-    filepath = os.path.join(DATA_DIR, filename)
+    filepath = os.path.join(get_data_dir(), filename)
     if os.path.exists(filepath):
         print(f"Skipping {filepath} (already exists)")
         return True
@@ -140,7 +152,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Prepare the output directory
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(get_data_dir(), exist_ok=True)
 
     # The way this works is that the user specifies the number of train shards to download via the -n flag.
     # In addition to that, the validation shard is *always* downloaded and is pinned to be the last shard.
@@ -150,11 +162,11 @@ if __name__ == "__main__":
 
     # Download the shards
     print(f"Downloading {len(ids_to_download)} shards using {args.num_workers} workers...")
-    print(f"Target directory: {DATA_DIR}")
+    print(f"Target directory: {get_data_dir()}")
     print()
     with Pool(processes=args.num_workers) as pool:
         results = pool.map(download_single_file, ids_to_download)
 
     # Report results
     successful = sum(1 for success in results if success)
-    print(f"Done! Downloaded: {successful}/{len(ids_to_download)} shards to {DATA_DIR}")
+    print(f"Done! Downloaded: {successful}/{len(ids_to_download)} shards to {get_data_dir()}")
